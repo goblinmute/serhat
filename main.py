@@ -25,6 +25,7 @@ _load_env()
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "")
+GOOGLE_SHEET_URL   = os.environ.get("GOOGLE_SHEET_URL", "")
 
 translation_cache = {}
 
@@ -198,6 +199,21 @@ def adjust_column_widths(ws):
             adjusted_width = 60
         ws.column_dimensions[column].width = adjusted_width
 
+def log_to_google_sheet(row_data, report_type):
+    """Veriyi anlık olarak Google Sheets'e gönderir."""
+    if not GOOGLE_SHEET_URL:
+        return
+    
+    try:
+        sheet_name = get_current_sheet_name(report_type)
+        payload = {
+            "sheetName": sheet_name,
+            "rowData": row_data
+        }
+        requests.post(GOOGLE_SHEET_URL, json=payload, timeout=10)
+    except Exception as e:
+        print(f"Google Sheets Log Hatası: {e}")
+
 def log_to_excel(row_data, status="Bulunamadı", report_type="Ekonomi"):
     """
     row_data: [Tarih, Kelime, Başlık, Link, Durum, Kontrat, Fiyat, Rapor, Kategori, Analiz]
@@ -236,6 +252,9 @@ def log_to_excel(row_data, status="Bulunamadı", report_type="Ekonomi"):
             adjust_column_widths(ws)
             wb.save(file_path)
             return
+
+        # Anlık Bulut Senkronizasyonu
+        log_to_google_sheet(row_data, report_type)
 
         ws.append(row_data)
         current_row = ws.max_row
