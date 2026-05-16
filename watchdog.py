@@ -14,9 +14,20 @@ import time
 import requests
 from datetime import datetime
 
-# ─── Ayarlar ────────────────────────────────────────────────
-TELEGRAM_BOT_TOKEN = "8932402031:AAHENNJ_-n123XoXuLlBxTHlPGfVf_8uVck"
-TELEGRAM_CHAT_ID   = "8724428153"
+# --- .env dosyasından kimlik bilgilerini yükle ---
+def _load_env():
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if os.path.exists(env_path):
+        with open(env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    os.environ.setdefault(k.strip(), v.strip())
+_load_env()
+
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "")
 RESTART_DELAY_SEC  = 30          # çöküş sonrası bekleme süresi
 SCRIPT_DIR         = os.path.dirname(os.path.abspath(__file__))
 MAIN_SCRIPT        = os.path.join(SCRIPT_DIR, "main.py")

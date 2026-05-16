@@ -1,3 +1,6 @@
+# Kimlik bilgileri — ASLA GitHub'a yüklenmesin
+.env
+
 # Excel raporları (büyük dosyalar, kişisel veri)
 *.xlsx
 
