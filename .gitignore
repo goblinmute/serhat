@@ -1,0 +1,20 @@
+# Excel raporları (büyük dosyalar, kişisel veri)
+*.xlsx
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Geçici tanı scriptleri
+diag_test.py
+why_stopped.py
+
+# Ortam
+.env
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
