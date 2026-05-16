@@ -6,6 +6,7 @@ from datetime import datetime
 import traceback
 import json
 import atexit
+import math
 from ntscraper import Nitter
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import PatternFill, Font, Alignment
@@ -123,6 +124,7 @@ def get_current_sheet_name(report_type="Ekonomi"):
     mapping = {
         "Turkiye_Gundem": "Turkiye Gündemi",
         "Polymarket_Firsatlari": "Polymarket Fırsatları",
+        "Arbitraj_Takibi": "📈 Arbitraj Takibi",
         "Ekonomi": "Ekonomi Takibi"
     }
     return mapping.get(report_type, report_type)
@@ -198,6 +200,77 @@ def adjust_column_widths(ws):
         if adjusted_width > 60:
             adjusted_width = 60
         ws.column_dimensions[column].width = adjusted_width
+
+def get_market_prices():
+    """Piyasalardan canlı fiyatları çeker."""
+    prices = {"BTC": 0, "ETH": 0, "USDTRY": 0, "GOLD_ONS": 0}
+    try:
+        # Kripto (Binance)
+        btc_res = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT", timeout=5).json()
+        prices["BTC"] = float(btc_res["price"])
+        
+        # Döviz (Dolar/TL - Yaklaşık)
+        usd_res = requests.get("https://api.exchangerate-api.com/v4/latest/USD", timeout=5).json()
+        prices["USDTRY"] = usd_res["rates"].get("TRY", 0)
+        
+        # Altın Ons (Ücretsiz bir API'den veya yaklaşık)
+        gold_res = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT", timeout=5).json()
+        prices["GOLD_ONS"] = float(gold_res["price"])
+    except Exception as e:
+        print(f"Fiyat çekme hatası: {e}")
+    return prices
+
+def check_arbitrage_opportunities(turkey_pool, market_prices):
+    """Polymarket fiyatları ile canlı piyasayı kıyaslar."""
+    opportunities = []
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    for market in turkey_pool:
+        question = market['question'].lower()
+        yes_price = market['yes_price']
+        
+        # 1. Dolar Arbitrajı Kontrolü
+        if "usd" in question or "try" in question or "lira" in question:
+            market_val = market_prices["USDTRY"]
+            # Soru içinde fiyat geçiyor mu? (Örn: "Will USD/TRY hit 35.00?")
+            found_nums = [float(s) for s in question.split() if s.replace('.','',1).isdigit()]
+            if found_nums:
+                target_price = found_nums[0]
+                diff = target_price - market_val
+                opportunities.append([
+                    timestamp, "USD/TRY", market['question'], "-", 
+                    "Arbitraj", f"Hedef: {target_price} | Piyasa: {market_val:.2f}", 
+                    f"Fark: {diff:.2f}", "DÖVİZ", f"Yes Olasılığı: %{yes_price*100:.0f}"
+                ])
+
+        # 2. Altın Arbitrajı Kontrolü
+        if "gold" in question or "altın" in question:
+            market_val = market_prices["GOLD_ONS"]
+            found_nums = [float(s) for s in question.split() if s.replace('.','',1).isdigit() and float(s) > 1000]
+            if found_nums:
+                target_price = found_nums[0]
+                diff = target_price - market_val
+                opportunities.append([
+                    timestamp, "ALTIN", market['question'], "-", 
+                    "Arbitraj", f"Hedef: {target_price} | Piyasa: {market_val:.0f}", 
+                    f"Fark: {diff:.0f}", "ALTIN", f"Yes Olasılığı: %{yes_price*100:.0f}"
+                ])
+
+        # 3. Kripto Arbitrajı Kontrolü
+        if "btc" in question or "bitcoin" in question:
+            market_val = market_prices["BTC"]
+            found_nums = [float(s.replace(',','')) for s in question.replace('$','').split() if s.replace('.','',1).replace(',','').isdigit() and float(s.replace(',','')) > 10000]
+            if found_nums:
+                target_price = found_nums[0]
+                diff = target_price - market_val
+                opportunities.append([
+                    timestamp, "BTC", market['question'], "-", 
+                    "Arbitraj", f"Hedef: {target_price} | Piyasa: {market_val:.0f}", 
+                    f"Fark: {diff:.0f}", "KRİPTO", f"Yes Olasılığı: %{yes_price*100:.0f}"
+                ])
+
+    for opp in opportunities:
+        log_to_excel(opp, status="Bulundu", report_type="Arbitraj_Takibi")
 
 def log_to_google_sheet(row_data, report_type):
     """Veriyi anlık olarak Google Sheets'e gönderir."""
@@ -644,13 +717,21 @@ def main():
                     log_errors=False
                 )
 
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] Yeni haberler, tweetler ve Polymarket kontrol ediliyor...")
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] Yeni haberler, tweetler, Polymarket ve Arbitraj kontrol ediliyor...")
+            
+            # Canlı piyasa verilerini çek
+            market_prices = get_market_prices()
+            
             new_relevant_news = check_news()
             twitter_news = check_twitter_news()
             all_news = new_relevant_news + twitter_news
 
             turkey_pool = get_turkey_markets_pool()
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            # ARBITRAJ KONTROLÜ
+            if turkey_pool and market_prices:
+                check_arbitrage_opportunities(turkey_pool, market_prices)
 
             # DOSYA 1: Polymarket Fırsatları
             if turkey_pool:

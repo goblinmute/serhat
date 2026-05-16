@@ -21,4 +21,7 @@ ssh -i $SSH_KEY -o StrictHostKeyChecking=no root@$SERVER_IP "cd $REPO_PATH && gi
 Write-Host "`n--- [3/3] Bot yeniden baslatiliyor... ---" -ForegroundColor Cyan
 ssh -i $SSH_KEY -o StrictHostKeyChecking=no root@$SERVER_IP "screen -S arbitrajbot -X quit; screen -dmS arbitrajbot bash -c 'cd $REPO_PATH && python3 watchdog.py 2>&1 | tee $REPO_PATH/watchdog.log'"
 
-Write-Host "`n✅ DEPLOY TAMAMLANDI!" -ForegroundColor Green
+Write-Host "`n--- [4/4] Sunucudaki Guncel Excel Yerel Klasore Senkronize Ediliyor... ---" -ForegroundColor Cyan
+scp -i $SSH_KEY -o StrictHostKeyChecking=no "root@${SERVER_IP}:${REPO_PATH}/Finansal_Radar_*.xlsx" "$PSScriptRoot\"
+
+Write-Host "`n✅ ISLEM TAMAMLANDI VE EXCEL GUNCEL!" -ForegroundColor Green
