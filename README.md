@@ -22,6 +22,22 @@ pip install -r requirements.txt
 
 # 3. Watchdog ile başlat (sürekli açık kalır)
 python watchdog.py
+
+# 4. Otomatik Deploy (Yerel Bilgisayardan)
+./deploy.ps1
+```
+
+## Otomatik Deploy (Continuous Deployment)
+
+Artık kod değişikliklerini sunucuya göndermek için `deploy.ps1` scriptini kullanabilirsiniz. Bu script:
+1. Yereldeki değişiklikleri GitHub'a push eder.
+2. Sunucuya SSH ile bağlanıp `git pull` yapar.
+3. Botu ve Watchdog'u sunucuda otomatik olarak yeniden başlatır.
+
+**Kullanım:**
+Terminalde (PowerShell) sadece şu komutu çalıştırmanız yeterlidir:
+```powershell
+./deploy.ps1
 ```
 
 ## Dosyalar
