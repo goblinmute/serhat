@@ -112,17 +112,19 @@ WEEKDAYS_TR = {
     4: "Cum.", 5: "Cts.", 6: "Paz."
 }
 
-def get_current_excel_file_path(report_type="Turkiye_Gundem"):
+def get_current_excel_file_path():
     now = datetime.now()
-    month_name = MONTHS_TR[now.month]
-    filename = f"{report_type}_{month_name}_{now.year}.xlsx"
+    filename = f"Finansal_Radar_{now.year}.xlsx"
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
 
-def get_current_sheet_name():
-    now = datetime.now()
-    date_str = now.strftime("%d.%m.%Y")
-    weekday_str = WEEKDAYS_TR[now.weekday()]
-    return f"{date_str} {weekday_str}"
+def get_current_sheet_name(report_type="Ekonomi"):
+    # Report type'ları daha okunabilir yapalım
+    mapping = {
+        "Turkiye_Gundem": "Turkiye Gündemi",
+        "Polymarket_Firsatlari": "Polymarket Fırsatları",
+        "Ekonomi": "Ekonomi Takibi"
+    }
+    return mapping.get(report_type, report_type)
 
 processed_news_links = set()
 seen_analyses = set()
@@ -162,8 +164,8 @@ def setup_sheet(ws):
     adjust_column_widths(ws)
 
 def init_excel_for_today(report_type="Ekonomi"):
-    file_path = get_current_excel_file_path(report_type)
-    sheet_name = get_current_sheet_name()
+    file_path = get_current_excel_file_path()
+    sheet_name = get_current_sheet_name(report_type)
 
     if not os.path.exists(file_path):
         wb = Workbook()
@@ -202,8 +204,8 @@ def log_to_excel(row_data, status="Bulunamadı", report_type="Ekonomi"):
     """
     try:
         init_excel_for_today(report_type)
-        file_path = get_current_excel_file_path(report_type)
-        sheet_name = get_current_sheet_name()
+        file_path = get_current_excel_file_path()
+        sheet_name = get_current_sheet_name(report_type)
 
         wb = load_workbook(file_path)
         if sheet_name in wb.sheetnames:
