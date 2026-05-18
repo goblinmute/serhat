@@ -113,6 +113,10 @@ NEWS_KEYWORDS = list(KEYWORD_MAPPING.keys())
 TURKEY_POOL_KEYWORDS = ["turkey", "turkish", "erdogan", "lira", "cbrt", "istanbul", "ankara", "try"]
 POLYMARKET_API_URL = "https://gamma-api.polymarket.com/markets"
 
+# --- Dinamik Filtre ve Bildirim Sabitleri ---
+ARBITRAGE_HIGH_CONF = 0.80   # Piyasa büyük ihtimalle EVET diyecek (%80+)
+ARBITRAGE_LOW_CONF  = 0.20   # Piyasa büyük ihtimalle HAYIR diyecek (%20-)
+
 MONTHS_TR = {
     1: "Ocak", 2: "Subat", 3: "Mart", 4: "Nisan",
     5: "Mayis", 6: "Haziran", 7: "Temmuz", 8: "Agustos",
@@ -135,9 +139,112 @@ def get_current_sheet_name(report_type="Ekonomi"):
         "Turkiye_Gundem": "Turkiye Gündemi",
         "Polymarket_Firsatlari": "Polymarket Fırsatları",
         "Arbitraj_Takibi": "📈 Arbitraj Takibi",
+        "Filtre_Kurallar": "⚙️ Filtre ve Kurallar",
         "Ekonomi": "Ekonomi Takibi"
     }
     return mapping.get(report_type, report_type)
+
+def write_rules_to_excel():
+    """
+    Botun güncel filtre, aralık ve Telegram kurallarını dinamik olarak
+    '⚙️ Filtre ve Kurallar' sayfasına yazar. Kod güncellendiğinde otomatik güncellenir.
+    """
+    try:
+        file_path = get_current_excel_file_path()
+        sheet_name = get_current_sheet_name("Filtre_Kurallar")
+        
+        # Dosya yoksa oluştur
+        if not os.path.exists(file_path):
+            wb = Workbook()
+            ws = wb.active
+            ws.title = sheet_name
+        else:
+            wb = load_workbook(file_path)
+            if sheet_name in wb.sheetnames:
+                # Sayfayı temizleyip yeniden yazalım ki her zaman en güncel olsun
+                del wb[sheet_name]
+            ws = wb.create_sheet(title=sheet_name)
+            
+        # Başlık ve tasarım kuralları
+        ws.append(["Filtre / Kural Adı", "Tetikleyici Değerler / Anahtar Kelimeler", "Telegram Bildirim Tipi", "Açıklama / Aksiyon Mantığı"])
+        
+        rules = [
+            [
+                "Arbitraj Üst Sınır (Evet Olasılığı)", 
+                f">= {ARBITRAGE_HIGH_CONF*100:.0f}% (${ARBITRAGE_HIGH_CONF:.2f})", 
+                "⚡ ARBİTRAJ FIRSATI — YES_GÜÇLÜ", 
+                "Piyasa yüksek güvenle EVET diyor. Fırsat algılandığında anında sinyal gönderir."
+            ],
+            [
+                "Arbitraj Alt Sınır (Evet Olasılığı)", 
+                f"<= {ARBITRAGE_LOW_CONF*100:.0f}% (${ARBITRAGE_LOW_CONF:.2f})", 
+                "⚡ ARBİTRAJ FIRSATI — NO_GÜÇLÜ", 
+                "Piyasa yüksek güvenle HAYIR diyor (No olasılığı %80+). Ucuz YES pozisyonu fırsatıdır."
+            ],
+            [
+                "Haber Takip Kelimeleri (RSS)", 
+                ", ".join(NEWS_KEYWORDS), 
+                "Haber Eşleşmesi Raporlanır", 
+                "Ekonomi RSS kanallarından çekilen başlıklarda bu kelimeler taranır."
+            ],
+            [
+                "Twitter Resmi Takip Hesapları", 
+                "tcbestepe, Merkez_Bankasi, HMBakanligi", 
+                "Tweet Eşleşmesi Raporlanır", 
+                "Resmi devlet ve finans otoritelerinin tweetleri anlık taranır."
+            ],
+            [
+                "Polymarket Soru Havuzu Filtresi", 
+                ", ".join(TURKEY_POOL_KEYWORDS), 
+                "Türkiye Kontrat Havuzu", 
+                "Polymarket'te başlığında bu kelimeler geçen tüm aktif kontratlar taranır."
+            ],
+            [
+                "Yeşil Alarm Kategorileri (En Yüksek Öncelik)", 
+                "DOLAR / TL DEĞER KAYBI, ARBITRAJ", 
+                "🟢 YÜKSEK FIRSAT / ALARM", 
+                "Eşleşme bulunduğunda doğrudan ve anında Telegram bildirimi gönderir."
+            ],
+            [
+                "Sarı Alarm Kategorileri (Orta Öncelik)", 
+                "ALTIN / EMTİA, PETROL / ENERJİ", 
+                "🟡 ORTA ÖNCELİKLİ FIRSAT", 
+                "Eşleşen aktif Polymarket kontratı mevcut ise bildirim gönderir."
+            ],
+            [
+                "Turuncu Alarm Kategorileri (Orta-Yüksek Öncelik)", 
+                "KRİPTO / WEB3, JEOPOLİTİK RİSK", 
+                "🟠 JEOPOLİTİK / KRİPTO ALARM", 
+                "Eşleşen aktif Polymarket kontratı mevcut ise alarm gönderir."
+            ]
+        ]
+        
+        for rule in rules:
+            ws.append(rule)
+            
+        # Stil uygulaması
+        header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+        header_font = Font(color="FFFFFF", bold=True)
+        
+        for cell in ws[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            
+        # Sütun genişlikleri ayarla
+        adjust_column_widths(ws)
+        wb.save(file_path)
+        
+        # Google Sheet'e de gönder!
+        for rule in rules:
+            log_to_google_sheet([
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                rule[0], rule[1], "-", "Sistem", rule[2], "-", rule[3], "SİSTEM", "-"
+            ], "Filtre_Kurallar")
+            
+        print("[SİSTEM] '⚙️ Filtre ve Kurallar' sayfası başarıyla güncellendi (Excel + Google Sheets).")
+    except Exception as e:
+        print(f"[SİSTEM HATA] Filtre ve kurallar sayfaya yazılamadı: {e}")
 
 processed_news_links = set()
 seen_analyses = set()
@@ -252,15 +359,13 @@ def check_arbitrage_opportunities(turkey_pool, market_prices):
             continue  # Fiyat parse edilememiş, atla
 
         # ── Eşik bazlı fırsat tespiti ──────────────────────────────────────────
-        HIGH_CONF = 0.80   # Piyasa büyük ihtimalle EVET diyecek
-        LOW_CONF  = 0.20   # Piyasa büyük ihtimalle HAYIR diyecek
         opp_label = None
         opp_detail = ""
 
-        if yes_float >= HIGH_CONF:
+        if yes_float >= ARBITRAGE_HIGH_CONF:
             opp_label  = "YES_GÜÇLÜ"
             opp_detail = f"Piyasa EVET'e çok yüksek güven veriyor (%{yes_float*100:.0f}). Sonuç gerçekleşirse erken NO al fırsatı."
-        elif yes_float <= LOW_CONF:
+        elif yes_float <= ARBITRAGE_LOW_CONF:
             opp_label  = "NO_GÜÇLÜ"
             opp_detail = f"Piyasa HAYIR'a çok yüksek güven veriyor (%{(1-yes_float)*100:.0f}). Ucuz YES pozisyonu değerlendirilebilir."
 
@@ -748,6 +853,7 @@ def main():
     print("Sistem mimarisi (2 Excel + Akıllı Bildirim) son haline getirildi, operasyon tamamen aktif.")
     init_excel_for_today("Turkiye_Gundem")
     init_excel_for_today("Polymarket_Firsatlari")
+    write_rules_to_excel()
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log_to_excel([timestamp, "SİSTEM BAŞLATILDI", "Bot V7 - Gece Yarısı Geçişi Düzeltmesi.", "-", "-", "-", "-", "Başarılı", "NÖTR", "-"], status="Sistem", report_type="Turkiye_Gundem")
@@ -767,6 +873,7 @@ def main():
                 print(f"[GECEYARıSı] Yeni gün: {current_sheet_name} sayfası oluşturuluyor...")
                 init_excel_for_today("Turkiye_Gundem")
                 init_excel_for_today("Polymarket_Firsatlari")
+                write_rules_to_excel()
                 seen_polymarket_contracts.clear()  # Yeni günde tüm kontratları yeniden logla
                 last_sheet_name = current_sheet_name
                 send_telegram_message(
