@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import requests
 import feedparser
@@ -11,6 +12,15 @@ from ntscraper import Nitter
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import PatternFill, Font, Alignment
 from deep_translator import GoogleTranslator
+
+# Windows konsolunda Unicode (Türkçe, Emoji vb.) karakterleri yazdırma hatasını önleme
+if sys.stdout.encoding != 'utf-8':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except AttributeError:
+        # Eski Python sürümleri için
+        pass
 
 # --- Kimlik bilgilerini .env dosyasından yükle ---
 def _load_env():
@@ -221,56 +231,96 @@ def get_market_prices():
     return prices
 
 def check_arbitrage_opportunities(turkey_pool, market_prices):
-    """Polymarket fiyatları ile canlı piyasayı kıyaslar."""
-    opportunities = []
+    """
+    Polymarket fiyatlarını FIRSAT EŞIĞINE göre tarar.
+    Yes < 0.20 → Piyasa neredeyse kesin HAYIR diyor → düşük fiyatlı YES al fırsatı
+    Yes > 0.80 → Piyasa neredeyse kesin EVET diyor → teyit et veya NO satışı
+    Ayrıca canlı piyasa ile hedef fiyatı karşılaştırır.
+    """
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
+    found_count = 0
+
     for market in turkey_pool:
-        question = market['question'].lower()
-        yes_price = market['yes_price']
-        
-        # 1. Dolar Arbitrajı Kontrolü
-        if "usd" in question or "try" in question or "lira" in question:
-            market_val = market_prices["USDTRY"]
-            # Soru içinde fiyat geçiyor mu? (Örn: "Will USD/TRY hit 35.00?")
-            found_nums = [float(s) for s in question.split() if s.replace('.','',1).isdigit()]
-            if found_nums:
-                target_price = found_nums[0]
-                diff = target_price - market_val
-                opportunities.append([
-                    timestamp, "USD/TRY", market['question'], "-", 
-                    "Arbitraj", f"Hedef: {target_price} | Piyasa: {market_val:.2f}", 
-                    f"Fark: {diff:.2f}", "DÖVİZ", f"Yes Olasılığı: %{yes_price*100:.0f}"
-                ])
+        question       = market['question']
+        question_lower = market['question_lower']
+        yes_price_str  = market['yes_price']
+        no_price_str   = market['no_price']
+        yes_float      = market.get('yes_price_float')  # float veya None
+        no_float       = market.get('no_price_float')
 
-        # 2. Altın Arbitrajı Kontrolü
-        if "gold" in question or "altın" in question:
-            market_val = market_prices["GOLD_ONS"]
-            found_nums = [float(s) for s in question.split() if s.replace('.','',1).isdigit() and float(s) > 1000]
-            if found_nums:
-                target_price = found_nums[0]
-                diff = target_price - market_val
-                opportunities.append([
-                    timestamp, "ALTIN", market['question'], "-", 
-                    "Arbitraj", f"Hedef: {target_price} | Piyasa: {market_val:.0f}", 
-                    f"Fark: {diff:.0f}", "ALTIN", f"Yes Olasılığı: %{yes_price*100:.0f}"
-                ])
+        if yes_float is None:
+            continue  # Fiyat parse edilememiş, atla
 
-        # 3. Kripto Arbitrajı Kontrolü
-        if "btc" in question or "bitcoin" in question:
-            market_val = market_prices["BTC"]
-            found_nums = [float(s.replace(',','')) for s in question.replace('$','').split() if s.replace('.','',1).replace(',','').isdigit() and float(s.replace(',','')) > 10000]
-            if found_nums:
-                target_price = found_nums[0]
-                diff = target_price - market_val
-                opportunities.append([
-                    timestamp, "BTC", market['question'], "-", 
-                    "Arbitraj", f"Hedef: {target_price} | Piyasa: {market_val:.0f}", 
-                    f"Fark: {diff:.0f}", "KRİPTO", f"Yes Olasılığı: %{yes_price*100:.0f}"
-                ])
+        # ── Eşik bazlı fırsat tespiti ──────────────────────────────────────────
+        HIGH_CONF = 0.80   # Piyasa büyük ihtimalle EVET diyecek
+        LOW_CONF  = 0.20   # Piyasa büyük ihtimalle HAYIR diyecek
+        opp_label = None
+        opp_detail = ""
 
-    for opp in opportunities:
-        log_to_excel(opp, status="Bulundu", report_type="Arbitraj_Takibi")
+        if yes_float >= HIGH_CONF:
+            opp_label  = "YES_GÜÇLÜ"
+            opp_detail = f"Piyasa EVET'e çok yüksek güven veriyor (%{yes_float*100:.0f}). Sonuç gerçekleşirse erken NO al fırsatı."
+        elif yes_float <= LOW_CONF:
+            opp_label  = "NO_GÜÇLÜ"
+            opp_detail = f"Piyasa HAYIR'a çok yüksek güven veriyor (%{(1-yes_float)*100:.0f}). Ucuz YES pozisyonu değerlendirilebilir."
+
+        # ── Kategori & canlı piyasa bilgisi ────────────────────────────────────
+        if any(k in question_lower for k in ["usd", "try", "lira", "turkish lira"]):
+            category   = "DÖVİZ"
+            market_ref = f"USD/TRY Canlı: {market_prices['USDTRY']:.2f}" if market_prices['USDTRY'] else "USD/TRY veri yok"
+            trigger    = "USD/TRY"
+        elif any(k in question_lower for k in ["gold", "altın", "xau"]):
+            category   = "ALTIN"
+            market_ref = f"Altın/Ons Canlı: ${market_prices['GOLD_ONS']:.0f}" if market_prices['GOLD_ONS'] else "Altın veri yok"
+            trigger    = "ALTIN"
+        elif any(k in question_lower for k in ["btc", "bitcoin"]):
+            category   = "KRİPTO"
+            market_ref = f"BTC Canlı: ${market_prices['BTC']:.0f}" if market_prices['BTC'] else "BTC veri yok"
+            trigger    = "BTC"
+        elif any(k in question_lower for k in ["turkey", "turkish", "erdogan", "cbrt"]):
+            category   = "TÜRKİYE"
+            market_ref = f"USD/TRY Canlı: {market_prices['USDTRY']:.2f}" if market_prices['USDTRY'] else "-"
+            trigger    = "TURKEY"
+        else:
+            category   = "DİĞER"
+            market_ref = "-"
+            trigger    = "-"
+
+        price_display = f"Yes: {yes_price_str} | No: {no_price_str} | {market_ref}"
+
+        if opp_label:
+            # Türkçe Çeviri Ekleme
+            translated_question = translate_text(question)
+            if translated_question and translated_question != question:
+                display_question = f"{question} ({translated_question})"
+            else:
+                display_question = question
+
+            # Yüksek güven → Excel + Telegram
+            row = [
+                timestamp, trigger, display_question, "-",
+                "Bulundu", display_question, price_display,
+                opp_detail, category, opp_label
+            ]
+            log_to_excel(row, status="Bulundu", report_type="Arbitraj_Takibi")
+
+            # Telegram bildirimi
+            arb_msg = (
+                f"⚡ <b>ARBİTRAJ FIRSATI</b> — {opp_label}\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"<b>Kontrat:</b> {display_question}\n"
+                f"<b>Fiyat:</b> Yes: {yes_price_str} | No: {no_price_str}\n"
+                f"<b>Piyasa:</b> {market_ref}\n"
+                f"<b>Yorum:</b> {opp_detail[:200]}\n"
+                f"<b>Zaman:</b> {timestamp}"
+            )
+            send_telegram_message(arb_msg)
+            found_count += 1
+
+    if found_count == 0:
+        print(f"[ARBİTRAJ] Bu turda eşik kriterini karşılayan fırsat bulunamadı. ({len(turkey_pool)} kontrat tarandı)")
+    else:
+        print(f"[ARBİTRAJ ✓] {found_count} fırsat bulundu ve Telegram'a gönderildi.")
 
 def log_to_google_sheet(row_data, report_type):
     """Veriyi anlık olarak Google Sheets'e gönderir."""
@@ -530,11 +580,21 @@ def get_turkey_markets_pool():
                         yes_price_str = f"${float(yes_price):.3f}" if str(yes_price).replace('.', '', 1).isdigit() else f"${yes_price}"
                         no_price_str = f"${float(no_price):.3f}" if str(no_price).replace('.', '', 1).isdigit() else f"${no_price}"
 
+                        # yes_price_float: arbitraj hesaplamaları için ham float
+                        try:
+                            yes_price_float = float(yes_price)
+                            no_price_float  = float(no_price)
+                        except (TypeError, ValueError):
+                            yes_price_float = None
+                            no_price_float  = None
+
                         turkey_pool.append({
                             "question": question,
                             "question_lower": question_lower,
                             "yes_price": yes_price_str,
-                            "no_price": no_price_str
+                            "no_price": no_price_str,
+                            "yes_price_float": yes_price_float,
+                            "no_price_float":  no_price_float
                         })
                 offset += limit
             else:

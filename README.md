@@ -2,6 +2,8 @@
 
 Türkiye ekonomi haberlerini ve Polymarket kontratlarını takip eden, otomatik fırsat tespiti yapan Python botu.
 
+📊 **Canlı Google Sheets Takip Linki:** [Finansal Radar Canlı Takip Tablosu](https://docs.google.com/spreadsheets/d/1LQPgYuZcbjTIViQfvuiSNFKpVwAOzvtTdLh1NxL_Lak/edit)
+
 ## Özellikler
 - RSS kaynakları üzerinden ekonomi haberi tarama (HaberTürk, NTV, TRT, CNN Türk)
 - Polymarket Türkiye kontratlarını otomatik eşleştirme
