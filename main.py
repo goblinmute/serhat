@@ -153,17 +153,11 @@ def write_rules_to_excel():
         file_path = get_current_excel_file_path()
         sheet_name = get_current_sheet_name("Filtre_Kurallar")
         
-        # Dosya yoksa oluştur
-        if not os.path.exists(file_path):
-            wb = Workbook()
-            ws = wb.active
-            ws.title = sheet_name
-        else:
-            wb = load_workbook(file_path)
-            if sheet_name in wb.sheetnames:
-                # Sayfayı temizleyip yeniden yazalım ki her zaman en güncel olsun
-                del wb[sheet_name]
-            ws = wb.create_sheet(title=sheet_name)
+        wb = safe_load_workbook(file_path)
+        if sheet_name in wb.sheetnames:
+            # Sayfayı temizleyip yeniden yazalım ki her zaman en güncel olsun
+            del wb[sheet_name]
+        ws = wb.create_sheet(title=sheet_name)
             
         # Başlık ve tasarım kuralları
         ws.append(["Filtre / Kural Adı", "Tetikleyici Değerler / Anahtar Kelimeler", "Telegram Bildirim Tipi", "Açıklama / Aksiyon Mantığı"])
@@ -283,25 +277,45 @@ def setup_sheet(ws):
     ws.freeze_panes = "A2"
     adjust_column_widths(ws)
 
+def safe_load_workbook(file_path):
+    """
+    Excel dosyasını güvenli bir şekilde yükler.
+    Eğer dosya bozuksa (ZipFile hatası, boş dosya vb.), dosyayı silip
+    sıfırdan yepyeni ve temiz bir Workbook oluşturarak kendini onarır.
+    """
+    try:
+        if os.path.exists(file_path) and os.path.getsize(file_path) > 100:
+            return load_workbook(file_path)
+    except Exception as e:
+        print(f"[REPAIR] Excel dosyası bozuk veya okunamıyor, yeniden oluşturuluyor: {e}")
+        try:
+            os.remove(file_path)
+        except Exception:
+            pass
+    
+    # Sıfırdan temiz bir dosya oluşturup döndür
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Turkiye Gündemi"
+    setup_sheet(ws)
+    try:
+        wb.save(file_path)
+    except Exception:
+        pass
+    return wb
+
 def init_excel_for_today(report_type="Ekonomi"):
     file_path = get_current_excel_file_path()
     sheet_name = get_current_sheet_name(report_type)
 
-    if not os.path.exists(file_path):
-        wb = Workbook()
-        ws = wb.active
-        ws.title = sheet_name
-        setup_sheet(ws)
-        wb.save(file_path)
-    else:
-        try:
-            wb = load_workbook(file_path)
-            if sheet_name not in wb.sheetnames:
-                ws = wb.create_sheet(title=sheet_name)
-                setup_sheet(ws)
-                wb.save(file_path)
-        except Exception as e:
-            print(f"Excel dosyası başlatılırken hata ({report_type}): {e}")
+    try:
+        wb = safe_load_workbook(file_path)
+        if sheet_name not in wb.sheetnames:
+            ws = wb.create_sheet(title=sheet_name)
+            setup_sheet(ws)
+            wb.save(file_path)
+    except Exception as e:
+        print(f"Excel dosyası başlatılırken hata ({report_type}): {e}")
 
 def adjust_column_widths(ws):
     for col in ws.columns:
@@ -451,7 +465,7 @@ def log_to_excel(row_data, status="Bulunamadı", report_type="Ekonomi"):
         file_path = get_current_excel_file_path()
         sheet_name = get_current_sheet_name(report_type)
 
-        wb = load_workbook(file_path)
+        wb = safe_load_workbook(file_path)
         if sheet_name in wb.sheetnames:
             ws = wb[sheet_name]
         else:
